@@ -31,9 +31,11 @@ class SurfaceStatsCollector(object):
         self.fps_queue = fps_queue
 
     def start(self, start_time):
+        logger.debug("start fps collector, use legacy method: {}".format(self.use_legacy_method))
         if not self.use_legacy_method:
             try:
                 self.focus_window = self.get_focus_activity()
+                logger.debug("focus_window: {}".format(self.focus_window))
                 if self.focus_window.find('$') != -1:
                     self.focus_window = self.focus_window.replace('$', '\$')
             except Exception:
@@ -224,6 +226,7 @@ class SurfaceStatsCollector(object):
                 if isinstance(data, str) and data == 'Stop':
                     break
                 before = time.time()
+                logger.debug('data: %s, self.user_legacy_method: %s', data, self.use_legacy_method)
                 if self.use_legacy_method:
                     td = data['timestamp'] - self.surface_before['timestamp']
                     seconds = td.seconds + td.microseconds / 1e6
@@ -267,6 +270,7 @@ class SurfaceStatsCollector(object):
                 else:
                     timestamps = []
                     refresh_period, new_timestamps = self._get_surfaceflinger_frame_data()
+                    logger.debug("refresh_period: %s, timestamps: %s", refresh_period, new_timestamps)
                     if refresh_period is None or new_timestamps is None:
                         self.focus_window = self.get_focus_activity()
                         logger.warning("refresh_period is None or timestamps is None")
@@ -371,9 +375,11 @@ class SurfaceStatsCollector(object):
         timestamps = []
         nanoseconds_per_second = 1e9
         pending_fence_timestamp = (1 << 63) - 1
+        logger.debug("self.surfaceview: %s", self.surfaceview)
         if self.surfaceview is not True:
             results = adb.shell(
                 cmd='dumpsys SurfaceFlinger --latency %s' % self.focus_window, deviceId=self.device)
+            logger.debug("results: %s", results)
             results = results.replace("\r\n", "\n").splitlines()
             refresh_period = int(results[0]) / nanoseconds_per_second
             results = adb.shell(cmd='dumpsys gfxinfo %s framestats' % self.package_name, deviceId=self.device)
@@ -410,8 +416,10 @@ class SurfaceStatsCollector(object):
         else:
             # self.focus_window = self.get_surfaceview_activity()
             self.focus_window = self.get_surfaceview()
+            logger.debug("self.focus_window: %s", self.focus_window)
             results = adb.shell(
                 cmd='dumpsys SurfaceFlinger --latency \\"%s\\"' % self.focus_window, deviceId=self.device)
+            logger.debug("results: %s", results)
             results = results.replace("\r\n", "\n").splitlines()
             if len(results) <= 1 or int(results[-2].split()[0]) ==0:
                 self.focus_window = self.get_surfaceview_activity()
@@ -456,6 +464,7 @@ class SurfaceStatsCollector(object):
         cur_surface = None
         timestamp = datetime.datetime.now()
         ret = adb.shell(cmd="service call SurfaceFlinger 1013", deviceId=self.device)
+        logger.debug(f"_get_surface_stats_legacy ret: {ret}")
         if not ret:
             return None
         match = re.search('^Result: Parcel\((\w+)', ret)

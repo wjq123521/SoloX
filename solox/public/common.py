@@ -77,7 +77,8 @@ class Devices:
     def getIdbyDevice(self, deviceinfo, platform):
         """Obtain the corresponding device id according to the Android device information"""
         if platform == Platform.Android:
-            deviceId = re.sub(u"\\(.*?\\)|\\{.*?}|\\[.*?]", "", deviceinfo)
+            deviceId = re.sub(u"\\(.*?\\(.*?\\)\\)|\\(.*?\\)|\\{.*?}|\\[.*?]", "", deviceinfo)
+            logger.info('Device id: {}'.format(deviceId))
             if deviceId not in self.getDeviceIds():
                 raise Exception('no device found')
         else:
@@ -252,7 +253,7 @@ class File:
         if os.path.exists(self.report_dir):
             for f in os.listdir(self.report_dir):
                 filename = os.path.join(self.report_dir, f)
-                if f.split(".")[-1] in ['log', 'json', 'mkv']:
+                if f.split(".")[-1] in ['log', 'json', 'mkv', 'mp4']:
                     os.remove(filename)
         Scrcpy.stop_record()            
         logger.info('Clean up useless files success')            
@@ -260,9 +261,9 @@ class File:
     def export_excel(self, platform, scene):
         logger.info('Exporting excel ...')
         android_log_file_list = ['cpu_app','cpu_sys','mem_total','mem_swap',
-                                 'battery_level', 'battery_tem','upflow','downflow','fps','gpu']
+                                 'battery_level', 'battery_tem','upflow','downflow','fps','gpu', 'thread_count']
         ios_log_file_list = ['cpu_app','cpu_sys', 'mem_total', 'battery_tem', 'battery_current', 
-                             'battery_voltage', 'battery_power','upflow','downflow','fps','gpu']
+                             'battery_voltage', 'battery_power','upflow','downflow','fps','gpu', 'thread_count']
         log_file_list = android_log_file_list if platform == 'Android' else ios_log_file_list
         wb = xlwt.Workbook(encoding = 'utf-8')
         k = 1
@@ -298,7 +299,7 @@ class File:
         else:
             html_path = os.path.join(self.report_dir, scene, 'report.html')   
         with open(html_path,'w+') as fout:
-            html_content = template.render(devices=summary['devices'],app=summary['app'],
+            html_content = template.render(devices=summary['devices'],app=summary['app'], thread=summary['thread'],
                                            platform=summary['platform'],ctime=summary['ctime'],
                                            cpu_app=summary['cpu_app'],cpu_sys=summary['cpu_sys'],
                                            mem_total=summary['mem_total'],mem_swap=summary['mem_swap'],
@@ -308,7 +309,7 @@ class File:
                                            mem_charts=summary['mem_charts'],net_charts=summary['net_charts'],
                                            battery_charts=summary['battery_charts'],fps_charts=summary['fps_charts'],
                                            jank_charts=summary['jank_charts'],mem_detail_charts=summary['mem_detail_charts'],
-                                           gpu=summary['gpu'], gpu_charts=summary['gpu_charts'])
+                                           gpu=summary['gpu'], gpu_charts=summary['gpu_charts'], thread_charts = summary['thread_charts'])
             
             fout.write(html_content)
         logger.info('Generating HTML success : {}'.format(html_path))  
@@ -325,7 +326,7 @@ class File:
         else:
             html_path = os.path.join(self.report_dir, scene, 'report.html')
         with open(html_path,'w+') as fout:
-            html_content = template.render(devices=summary['devices'],app=summary['app'],
+            html_content = template.render(devices=summary['devices'],app=summary['app'], thread=summary['thread'],
                                            platform=summary['platform'],ctime=summary['ctime'],
                                            cpu_app=summary['cpu_app'],cpu_sys=summary['cpu_sys'],gpu=summary['gpu'],
                                            mem_total=summary['mem_total'],fps=summary['fps'],
@@ -334,7 +335,7 @@ class File:
                                            net_send=summary['net_send'],net_recv=summary['net_recv'],
                                            cpu_charts=summary['cpu_charts'],mem_charts=summary['mem_charts'],
                                            net_charts=summary['net_charts'],battery_charts=summary['battery_charts'],
-                                           fps_charts=summary['fps_charts'],gpu_charts=summary['gpu_charts'])            
+                                           fps_charts=summary['fps_charts'],gpu_charts=summary['gpu_charts'], thread_charts = summary['thread_charts'])            
             fout.write(html_content)
         logger.info('Generating HTML success : {}'.format(html_path))  
         return html_path
@@ -399,7 +400,7 @@ class File:
 
         for f in os.listdir(self.report_dir):
             filename = os.path.join(self.report_dir, f)
-            if f.split(".")[-1] in ['log', 'json', 'mkv']:
+            if f.split(".")[-1] in ['log', 'json', 'mkv', 'mp4']:
                 shutil.move(filename, report_new_dir)        
         logger.info('Generating test results success: {}'.format(report_new_dir))
         return f'apm_{current_time}'        
@@ -462,6 +463,12 @@ class File:
         targetDic = dict()
         targetDic['gpu'] = self.readLog(scene=scene, filename='gpu.log')[0]
         result = {'status': 1, 'gpu': targetDic['gpu']}
+        return result
+        
+    def getThreadLog(self, platform, scene):
+        targetDic = dict()
+        targetDic['thread_count'] = self.readLog(scene=scene, filename='thread_count.log')[0]
+        result = {'status': 1, 'thread_count': targetDic['thread_count']}
         return result
     
     def getGpuLogCompare(self, platform, scene1, scene2):
@@ -726,10 +733,17 @@ class File:
         else:
             gpu = 0
 
+        threadData = self.readLog(scene=scene, filename='thread_count.log')[1]
+        if threadData.__len__() > 0:
+            threads = round(sum(threadData) / len(threadData), 2)
+        else:
+            threads = 0
+
         mem_detail_flag = os.path.exists(os.path.join(self.report_dir,scene,'mem_java_heap.log'))
         disk_flag = os.path.exists(os.path.join(self.report_dir,scene,'disk_free.log'))
         thermal_flag = os.path.exists(os.path.join(self.report_dir,scene,'init_thermal_temp.json'))
         cpu_core_flag = os.path.exists(os.path.join(self.report_dir,scene,'cpu0.log'))
+        hasVideo = os.path.exists(os.path.join(self.report_dir,scene,'record.mp4'))
         apm_dict = dict()
         apm_dict['app'] = app
         apm_dict['devices'] = devices
@@ -739,6 +753,7 @@ class File:
         apm_dict['cpuSystemRate'] = cpuSystemRate
         apm_dict['totalPassAvg'] = totalPassAvg
         apm_dict['swapPassAvg'] = swapPassAvg
+        apm_dict['threadsAvg'] = threads
         apm_dict['fps'] = fpsAvg
         apm_dict['jank'] = jankAvg
         apm_dict['flow_send'] = flowSend
@@ -750,6 +765,9 @@ class File:
         apm_dict['gpu'] = gpu
         apm_dict['thermal_flag'] = thermal_flag
         apm_dict['cpu_core_flag'] = cpu_core_flag
+        apm_dict['hasVideo'] = hasVideo
+
+        logger.info(apm_dict)
         
         if thermal_flag:
             init_thermal_temp = json.loads(open(os.path.join(self.report_dir,scene,'init_thermal_temp.json')).read())
@@ -986,22 +1004,26 @@ class Scrcpy:
     def start_record(cls, device):
         f = File()
         logger.info('start record screen')
-        win_cmd = "start /b {scrcpy_path} -s {deviceId} --no-playback --record={video}".format(
+        win_cmd = "start /b {scrcpy_path} -s {deviceId} -Nr {video}".format(
             scrcpy_path = cls.scrcpy_path(), 
             deviceId = device, 
-            video = os.path.join(f.report_dir, 'record.mkv')
+            video = os.path.join(f.report_dir, 'record.mp4')
         )
-        mac_cmd = "nohup {scrcpy_path} -s {deviceId} --no-playback --record={video} &".format(
+        mac_cmd = "nohup {scrcpy_path} -s {deviceId} -Nr {video}&".format(
             scrcpy_path = cls.scrcpy_path(), 
             deviceId = device, 
-            video = os.path.join(f.report_dir, 'record.mkv')
+            video = os.path.join(f.report_dir, 'record.mp4')
         )
+        logger.debug("win_cmd: " + win_cmd)
+        logger.debug("mac_cmd: " + mac_cmd)
         if platform.system().lower().__contains__('windows'):
+            logger.debug("to run win_cmd-----------")
             result = os.system(win_cmd)
         else:
+            logger.debug("to run mac_cmd-----------")
             result = os.system(mac_cmd)    
         if result == 0:
-            logger.info("record screen success : {}".format(os.path.join(f.report_dir, 'record.mkv')))
+            logger.info("record screen success : {}".format(os.path.join(f.report_dir, 'record.mp4')))
         else:
             logger.error("solox's scrcpy is incompatible with your PC")
             logger.info("Please install the software yourself : brew install scrcpy")    
@@ -1015,7 +1037,11 @@ class Scrcpy:
             for pid in pids:
                 p = psutil.Process(pid)
                 if p.name().__contains__('scrcpy'):
-                    os.kill(pid, signal.SIGABRT)
+                    logger.debug('process name: ' + p.name() + ' pid: ' + str(pid) + ' p.children(): ' + str(p.children()))
+                    children = p.children()
+                    for child in children:
+                        os.kill(child.pid, signal.SIGTERM)
+                    os.kill(pid, signal.SIGTERM)
                     logger.info(pid)
         except Exception as e:
             logger.exception(e)
@@ -1044,16 +1070,20 @@ class Scrcpy:
     
     @classmethod
     def play_video(cls, video):
-        logger.info('start play video : {}'.format(video))
+        logger.info('start play video : {}'.format(video)) 
+        logger.info("cv2.__version__: " + cv2.__version__ + ", cv2.getBuildInformation(): " + cv2.getBuildInformation())
         cap = cv2.VideoCapture(video)
         while(cap.isOpened()):
             ret, frame = cap.read()
             if ret:
                 gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-                cv2.namedWindow("frame", 0)  
-                cv2.resizeWindow("frame", 430, 900)
-                cv2.imshow('frame', gray)
-                if cv2.waitKey(25) & 0xFF == ord('q') or not cv2.getWindowProperty("frame", cv2.WND_PROP_VISIBLE):
+                cv2.namedWindow("Preview", cv2.WINDOW_NORMAL)  
+                cv2.resizeWindow("Preview", 430, 900)
+                cv2.imshow('Preview', gray)
+                
+                # 检查键盘输入或窗口关闭
+                key = cv2.waitKey(25) & 0xFF
+                if key == ord('q') or key == 27 or not cv2.getWindowProperty("frame", cv2.WND_PROP_VISIBLE):
                     break
             else:
                 break

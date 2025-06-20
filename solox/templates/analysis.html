@@ -376,6 +376,27 @@
                 </div>
             </div>
         </div>
+        <div class="col-sm-6 col-lg-2">
+            <div class="card card-sm">
+                <div class="card-body">
+                    <div class="row align-items-center">
+                        <div class="col-auto">
+                            <span class="bg-blue text-white avatar">
+                                {% if lan == 'cn' %} 线程 {% else %} THR {% endif %}
+                            </span>
+                        </div>
+                        <div class="col">
+                            <div class="font-weight-medium">
+                                {% if lan == 'cn' %} 线程数 {% else %} Thread Count {% endif %}
+                            </div>
+                            <div class="text-muted">
+                                Avg: {{ apm_data.threadsAvg }}
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
     </div>
 </div>
 {% if platform == 'Android' %}
@@ -406,6 +427,16 @@
 </div>
 {% endif %}
 <div class="col-12"  id="card-chart">
+    {% if apm_data.hasVideo == True %}
+    <div class="card vidoe-card">
+        <div class="card-header">
+            <div class='card-title'>{% if lan == 'cn' %} 录屏回放 {% else %} Record Preview {% endif %}</div>
+        </div>
+        <div class="card-body" style="display: flex; justify-content: center; align-items: center;">
+            <video src="/apm/video/stream?scene={{ scene }}" controls width="250px"></video>
+        </div>
+    </div>
+    {% endif %}
     <div class="card cpu-card">
         <div class="card-header">
             <div class='card-title'>{% if lan == 'cn' %} CPU使用率 (%) {% else %} CPU Usage (%) {% endif %}</div>
@@ -568,6 +599,25 @@
         </div>
         <div class="card-body">
             <div id="chart-gpu"></div>
+        </div>
+    </div>
+    <div class="card thread-card mt-3">
+        <div class="card-header">
+            <div class='card-title'>{% if lan == 'cn' %} 线程数 {% else %} Thread Count {% endif %}</div>
+            <div class="card-actions btn-actions">
+                <a class="btn" onclick="initThreadCharts()">
+                    <span class="spinner-border spinner-border-sm me-2" id="thread_spinner" role="status" style="display: none;"></span>
+                    <svg id="thread_refresh_logo" xmlns="http://www.w3.org/2000/svg" class="icon" width="24" height="24" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" fill="none" stroke-linecap="round" stroke-linejoin="round"><path stroke="none" d="M0 0h24v24H0z" fill="none"/><path d="M20 11a8.1 8.1 0 0 0 -15.5 -2m-.5 -4v4h4" /><path d="M4 13a8.1 8.1 0 0 0 15.5 2m.5 4v-4h-4" /></svg>
+                    {% if lan == 'cn' %} 刷新 {% else %} Refresh {% endif %}
+                </a>       
+                <a class="btn" id="thread_png" style="margin-left: 10px;" onclick="screenshot('thread-card','thread.png')">
+                    <svg t="1646303797379" class="icon" viewBox="0 0 1024 1024" version="1.1" xmlns="http://www.w3.org/2000/svg" p-id="5790" width="2000" height="2000"><path d="M897.856 842.56c14.464-6.72 18.624-20.48 9.28-30.848l-241.216-263.296a25.792 25.792 0 0 0-7.68-5.888c-14.016-7.296-33.6-5.184-43.776 4.8l-241.152 233.088-103.808-70.528a30.912 30.912 0 0 0-3.52-1.92c-14.08-7.36-33.664-4.992-43.776 4.864l-101.056 97.728a18.368 18.368 0 0 0-6.08 13.952c0.512 12.288 14.848 22.016 32.128 21.696h732.8a40.768 40.768 0 0 0 17.856-3.648zM259.84 399.68a78.464 78.464 0 0 0 117.504 67.84 78.272 78.272 0 0 0 0-135.744A78.208 78.208 0 0 0 259.84 399.68" p-id="5791"></path><path d="M864.832 872.256H159.232a83.84 83.84 0 0 1-83.776-83.776V235.52a83.84 83.84 0 0 1 83.776-83.776h705.536a83.84 83.84 0 0 1 83.776 83.776v552.96a83.84 83.84 0 0 1-83.712 83.776zM159.232 183.744a51.84 51.84 0 0 0-51.776 51.776v552.96a51.84 51.84 0 0 0 51.776 51.776h705.536a51.84 51.84 0 0 0 51.776-51.776V235.52a51.84 51.84 0 0 0-51.776-51.776H159.232z" p-id="5792"></path></svg>
+                    {% if lan == 'cn' %} 截图 {% else %} ScreenShot {% endif %}
+                </a>
+            </div>
+        </div>
+        <div class="card-body">
+            <div id="chart-thread"></div>
         </div>
     </div>
     {% if apm_data.disk_flag == True %}
@@ -864,6 +914,7 @@
         initBatteryCharts()
         initNetworkCharts()
         initGpuCharts()
+        initThreadCharts()
         if('{{ apm_data.mem_detail_flag }}' == 'True' ){
             initMemoryDetailCharts()
         }
@@ -936,6 +987,7 @@
                 net_send:'{{ apm_data.flow_send }}',
                 net_recv:'{{ apm_data.flow_recv }}',
                 gpu:'{{ apm_data.gpu }}',
+                threads:'{{ apm_data.threadsAvg }}',
             },
             beforeSend: function () {
                 SwalLoading('Save Html','Saving html.')
@@ -1340,7 +1392,7 @@
     }
 
     function initDiskCharts(){
-        var disk_chart = new ApexCharts(document.querySelector("#chart-disk"), options('line',false));
+        var disk_chart = new ApexCharts(document.querySelector("#chart-disk"), options('line'));
         disk_chart.render();
         $.ajax({
             url: '/apm/log',
@@ -1367,6 +1419,36 @@
                 },{
                     name: 'free',
                     data: data['free']
+                }])
+            }
+        });
+    }
+    
+    function initThreadCharts(){
+        var thread_chart = new ApexCharts(document.querySelector("#chart-thread"), options('line'));
+        thread_chart.render();
+        $.ajax({
+            url: '/apm/log',
+            type: "GET",
+            async: true,
+            cache: false,
+            data:{
+                scene:'{{ scene }}',
+                target:'thread',
+                platform:platform
+            },
+            beforeSend: function () {
+                $('#thread_spinner').show()
+                $('#thread_refresh_logo').hide()
+            },
+            complete: function () {
+                $('#thread_spinner').hide()
+                $('#thread_refresh_logo').show()
+            },
+            success: function (data) {
+                thread_chart.updateSeries([{
+                    name: '{% if lan == "cn" %}线程数{% else %}thread count{% endif %}',
+                    data: data['thread_count']
                 }])
             }
         });

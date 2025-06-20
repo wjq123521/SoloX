@@ -46,7 +46,7 @@ def report():
     dir_list = reversed(sorted(dirs, key=lambda x: os.path.getmtime(os.path.join(report_dir, x))))
     apm_data = []
     for dir in dir_list:
-        if dir.split(".")[-1] not in ['log', 'json', 'mkv']:
+        if dir.split(".")[-1] not in ['log', 'json', 'mkv', 'mp4']:
             try:
                 fpath = open(os.path.join(report_dir, dir, 'result.json'))
                 json_data = json.loads(fpath.read())

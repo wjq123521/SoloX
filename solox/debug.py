@@ -8,8 +8,8 @@ import requests
 import socket
 import psutil
 import sys
-from view.apis import api
-from view.pages import page
+from solox.view.apis import api
+from solox.view.pages import page
 from logzero import logger
 from threading import Lock
 from flask_socketio import SocketIO, disconnect
@@ -105,8 +105,8 @@ def start(host: str, port: int):
     logger.info('Running on http://{}:{}/?platform=Android&lan=en (Press CTRL+C to quit)'.format(host, port))
     app.run(host=host, port=port, debug=True)
 
-def main(host=ip(), port=50003):
-    start(host, port)      
+def main():
+    start(ip(), 50003)      
 
 
 if __name__ == '__main__':

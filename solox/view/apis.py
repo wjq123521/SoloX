@@ -3,11 +3,12 @@ import shutil
 import time
 import requests
 import json
+import re
 from flask import request, make_response
 from logzero import logger
 from flask import Blueprint
 from solox import __version__
-from solox.public.apm import (CPU, Memory, Network, FPS, Battery, GPU, Energy, Disk,ThermalSensor, Target)
+from solox.public.apm import (CPU, Memory, Network, FPS, Battery, GPU, Energy, Disk,ThermalSensor, Target, Thread)
 from solox.public.apm_pk import (CPU_PK, MEM_PK, Flow_PK, FPS_PK)
 from solox.public.common import (Devices, File, Method, Install, Platform, Scrcpy)
 
@@ -450,6 +451,23 @@ def getGpu():
         result = {'status': 1, 'gpu': 0}
     return result
 
+@api.route('/apm/thread', methods=['post', 'get'])
+def getThreads():
+    """get gpu data"""
+    pkgname = method._request(request, 'pkgname')
+    device = method._request(request, 'device')
+    platform = method._request(request, 'platform')
+    try:
+        deviceId = d.getIdbyDevice(device, platform)
+        thread = Thread(pkgName=pkgname, deviceId=deviceId, platform=platform)
+        value = thread.getThreads()
+        result = {'status': 1, 'threads': value}
+    except Exception as e:
+        logger.exception(e)
+        result = {'status': 1, 'threads': 0}
+    return result
+    
+
 @api.route('/apm/energy', methods=['post', 'get'])
 def getEnergy():
     """get energy data"""
@@ -618,6 +636,8 @@ def exportAndroidHtml():
     net_send = method._request(request, 'net_send')
     net_recv = method._request(request, 'net_recv')
     gpu = method._request(request, 'gpu')
+    threads = method._request(request, 'threads')
+
     try:
         summary_dict = dict()
         summary_dict['app'] = f.readJson(scene).get('app')
@@ -628,6 +648,7 @@ def exportAndroidHtml():
         summary_dict['cpu_sys'] = cpu_sys
         summary_dict['mem_total'] = mem_total
         summary_dict['mem_swap'] = mem_swap
+        summary_dict['thread'] = threads
         summary_dict['fps'] = fps
         summary_dict['jank'] = jank
         summary_dict['level'] = level
@@ -643,6 +664,7 @@ def exportAndroidHtml():
         summary_dict['fps_charts'] = f.getFpsLog(Platform.Android, scene)['fps']
         summary_dict['jank_charts'] = f.getFpsLog(Platform.Android, scene)['jank']
         summary_dict['gpu_charts'] = f.getGpuLog(Platform.Android, scene)
+        summary_dict['thread_charts'] = f.getThreadLog(Platform.Android, scene)
         path = f.make_android_html(scene, summary_dict)
         result = {'status': 1, 'msg':'success', 'path':path}
     except Exception as e:
@@ -664,6 +686,7 @@ def exportiOSHtml():
     power = method._request(request, 'power')
     net_send = method._request(request, 'net_send')
     net_recv = method._request(request, 'net_recv')
+    threads = method._request(request, 'threads')
     try:
         summary_dict = dict()
         summary_dict['app'] = f.readJson(scene).get('app')
@@ -675,6 +698,7 @@ def exportiOSHtml():
         summary_dict['mem_total'] = mem_total
         summary_dict['gpu'] = gpu
         summary_dict['fps'] = fps
+        summary_dict['thread'] = threads
         summary_dict['tem'] = temperature
         summary_dict['current'] = current
         summary_dict['voltage'] = voltage
@@ -687,6 +711,7 @@ def exportiOSHtml():
         summary_dict['battery_charts'] = f.getBatteryLog(Platform.iOS, scene)
         summary_dict['fps_charts'] = f.getFpsLog(Platform.iOS, scene)
         summary_dict['gpu_charts'] = f.getGpuLog(Platform.iOS, scene)
+        summary_dict['thread_charts'] = f.getThreadLog(Platform.ios, scene)
         path = f.make_ios_html(scene, summary_dict)
         result = {'status': 1, 'msg':'success', 'path':path}
     except Exception as e:
@@ -701,18 +726,31 @@ def getLogData():
     target = method._request(request, 'target')
     platform = method._request(request, 'platform')
     try:
-        fucDic = {
-            'cpu': f.getCpuLog(platform, scene),
-            'mem': f.getMemLog(platform, scene),
-            'mem_detail': f.getMemDetailLog(platform, scene),
-            'battery': f.getBatteryLog(platform, scene),
-            'flow': f.getFlowLog(platform, scene),
-            'fps': f.getFpsLog(platform, scene),
-            'gpu': f.getGpuLog(platform, scene),
-            'disk': f.getDiskLog(platform, scene),
-            'cpu_core': f.getCpuCoreLog(platform, scene)
-        }
-        result = fucDic[target]
+        # 使用match-case语句（Python 3.10+的switch语法）根据target选择对应的数据获取函数
+        match target:
+            case 'cpu':
+                result = f.getCpuLog(platform, scene)
+            case 'mem':
+                result = f.getMemLog(platform, scene)
+            case 'mem_detail':
+                result = f.getMemDetailLog(platform, scene)
+            case 'battery':
+                result = f.getBatteryLog(platform, scene)
+            case 'flow':
+                result = f.getFlowLog(platform, scene)
+            case 'fps':
+                result = f.getFpsLog(platform, scene)
+            case 'gpu':
+                result = f.getGpuLog(platform, scene)
+            case 'disk':
+                result = f.getDiskLog(platform, scene)
+            case 'cpu_core':
+                result = f.getCpuCoreLog(platform, scene)
+            case 'thread':
+                result = f.getThreadLog(platform, scene)
+            case _:
+                # 默认情况处理
+                result = {'status': 0, 'msg': f'Unknown target: {target}'}
     except Exception as e:
         logger.exception(e)
         result = {'status': 0, 'msg': str(e)}
@@ -917,7 +955,7 @@ def cast_screen():
 @api.route('/apm/record/play', methods=['post', 'get'])
 def play_record():
     scene = method._request(request, 'scene')
-    video = os.path.join(f.get_repordir(), scene, 'record.mkv')
+    video = os.path.join(f.get_repordir(), scene, 'record.mp4')
     try:
         Scrcpy.play_video(video)
         result = {'status': 1, 'msg': 'success'}
@@ -925,3 +963,64 @@ def play_record():
         logger.exception(e)
         result = {'status': 0, 'msg': 'play video failed'}
     return result
+
+@api.route('/apm/video/stream', methods=['get'])
+def video_stream():
+    from flask import send_file, Response
+    import mimetypes
+    
+    scene = request.args.get('scene')
+    if not scene:
+        return Response('Scene parameter is required', status=400)
+    
+    video_path = os.path.join(f.get_repordir(), scene, 'record.mp4')
+    
+    if not os.path.exists(video_path):
+        return Response('Video file not found', status=404)
+    
+    try:
+        # 获取文件大小
+        file_size = os.path.getsize(video_path)
+        
+        # 处理范围请求（支持视频拖拽）
+        range_header = request.headers.get('Range', None)
+        
+        if range_header:
+            byte1, byte2 = 0, None
+            match = re.search(r'(\d+)-(\d*)', range_header)
+            groups = match.groups()
+            
+            if groups[0]:
+                byte1 = int(groups[0])
+            if groups[1]:
+                byte2 = int(groups[1])
+                
+            if byte2 is not None:
+                length = byte2 - byte1 + 1
+            else:
+                length = file_size - byte1
+                
+            resp = Response(
+                open(video_path, 'rb').read()[byte1:byte1 + length],
+                status=206,
+                mimetype='video/mp4',
+                content_type='video/mp4',
+                direct_passthrough=True
+            )
+            
+            resp.headers.add('Content-Range', f'bytes {byte1}-{byte1 + length - 1}/{file_size}')
+            resp.headers.add('Accept-Ranges', 'bytes')
+            resp.headers.add('Content-Length', str(length))
+            return resp
+        
+        # 非范围请求，返回整个文件
+        return send_file(
+            video_path,
+            mimetype='video/mp4',
+            as_attachment=False,
+            conditional=True
+        )
+        
+    except Exception as e:
+        logger.exception(e)
+        return Response(f'Error streaming video: {str(e)}', status=500)
