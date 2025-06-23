@@ -1071,7 +1071,6 @@ class Scrcpy:
     @classmethod
     def play_video(cls, video):
         logger.info('start play video : {}'.format(video)) 
-        logger.info("cv2.__version__: " + cv2.__version__ + ", cv2.getBuildInformation(): " + cv2.getBuildInformation())
         cap = cv2.VideoCapture(video)
         while(cap.isOpened()):
             ret, frame = cap.read()

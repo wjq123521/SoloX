@@ -966,8 +966,9 @@ def play_record():
 
 @api.route('/apm/video/stream', methods=['get'])
 def video_stream():
-    from flask import send_file, Response
+    from flask import Response
     import mimetypes
+    import re
     
     scene = request.args.get('scene')
     if not scene:
@@ -985,23 +986,69 @@ def video_stream():
         # 处理范围请求（支持视频拖拽）
         range_header = request.headers.get('Range', None)
         
+        # 定义分块大小 (1MB)
+        chunk_size = 1024 * 1024
+        
+        def generate():
+            # 打开文件为二进制读取模式
+            with open(video_path, 'rb') as video_file:
+                if range_header:
+                    byte1, byte2 = 0, None
+                    match = re.search(r'(\d+)-(\d*)', range_header)
+                    if match:
+                        groups = match.groups()
+                        
+                        if groups[0]:
+                            byte1 = int(groups[0])
+                        if groups[1]:
+                            byte2 = int(groups[1])
+                    
+                    # 设置文件指针位置
+                    video_file.seek(byte1)
+                    
+                    # 计算需要读取的总长度
+                    if byte2 is not None:
+                        length = byte2 - byte1 + 1
+                    else:
+                        length = file_size - byte1
+                    
+                    # 分块读取并返回数据
+                    remaining = length
+                    while remaining > 0:
+                        # 读取当前块大小或剩余大小（取较小值）
+                        current_chunk_size = min(chunk_size, remaining)
+                        data = video_file.read(current_chunk_size)
+                        if not data:
+                            break
+                        remaining -= len(data)
+                        yield data
+                else:
+                    # 非范围请求，返回整个文件（仍然分块）
+                    while True:
+                        data = video_file.read(chunk_size)
+                        if not data:
+                            break
+                        yield data
+        
+        # 创建响应对象
         if range_header:
             byte1, byte2 = 0, None
             match = re.search(r'(\d+)-(\d*)', range_header)
-            groups = match.groups()
-            
-            if groups[0]:
-                byte1 = int(groups[0])
-            if groups[1]:
-                byte2 = int(groups[1])
+            if match:
+                groups = match.groups()
                 
+                if groups[0]:
+                    byte1 = int(groups[0])
+                if groups[1]:
+                    byte2 = int(groups[1])
+            
             if byte2 is not None:
                 length = byte2 - byte1 + 1
             else:
                 length = file_size - byte1
-                
+            
             resp = Response(
-                open(video_path, 'rb').read()[byte1:byte1 + length],
+                generate(),
                 status=206,
                 mimetype='video/mp4',
                 content_type='video/mp4',
@@ -1009,17 +1056,20 @@ def video_stream():
             )
             
             resp.headers.add('Content-Range', f'bytes {byte1}-{byte1 + length - 1}/{file_size}')
-            resp.headers.add('Accept-Ranges', 'bytes')
             resp.headers.add('Content-Length', str(length))
-            return resp
+        else:
+            resp = Response(
+                generate(),
+                mimetype='video/mp4',
+                content_type='video/mp4',
+                direct_passthrough=True
+            )
+            
+            resp.headers.add('Content-Length', str(file_size))
         
-        # 非范围请求，返回整个文件
-        return send_file(
-            video_path,
-            mimetype='video/mp4',
-            as_attachment=False,
-            conditional=True
-        )
+        # 添加通用头部
+        resp.headers.add('Accept-Ranges', 'bytes')
+        return resp
         
     except Exception as e:
         logger.exception(e)
