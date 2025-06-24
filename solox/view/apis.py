@@ -966,8 +966,7 @@ def play_record():
 
 @api.route('/apm/video/stream', methods=['get'])
 def video_stream():
-    from flask import Response
-    import mimetypes
+    from flask import Response, stream_with_context, send_file
     import re
     
     scene = request.args.get('scene')
@@ -986,10 +985,29 @@ def video_stream():
         # 处理范围请求（支持视频拖拽）
         range_header = request.headers.get('Range', None)
         
-        # 定义分块大小 (1MB)
-        chunk_size = 1024 * 1024
+        # 检查是否是HEAD请求或者是请求视频元数据
+        if request.method == 'HEAD' or request.args.get('metadata') == '1':
+            # 对于HEAD请求或元数据请求，返回完整的文件信息但不包含内容
+            # 这样浏览器可以获取视频的元数据（包括时长）
+            response = send_file(
+                video_path,
+                mimetype='video/mp4',
+                as_attachment=False,
+                conditional=True
+            )
+            # 确保不发送实际内容
+            if request.args.get('metadata') == '1':
+                response.headers['Content-Length'] = str(file_size)
+                response.headers['Accept-Ranges'] = 'bytes'
+                response.headers['X-Content-Type-Options'] = 'nosniff'
+            return response
         
-        def generate():
+        # 定义分块大小 (1MB 用于初始块，包含元数据)
+        initial_chunk_size = 1024 * 1024  # 1MB 用于初始块
+        chunk_size = 512 * 1024  # 后续块使用 512KB
+        
+        @stream_with_context
+        def generate_stream():
             # 打开文件为二进制读取模式
             with open(video_path, 'rb') as video_file:
                 if range_header:
@@ -1014,23 +1032,40 @@ def video_stream():
                     
                     # 分块读取并返回数据
                     remaining = length
+                    # 第一块使用较大的块大小，确保包含元数据
+                    first_chunk = True
                     while remaining > 0:
                         # 读取当前块大小或剩余大小（取较小值）
-                        current_chunk_size = min(chunk_size, remaining)
+                        current_chunk_size = min(initial_chunk_size if first_chunk else chunk_size, remaining)
                         data = video_file.read(current_chunk_size)
                         if not data:
                             break
+                        first_chunk = False
                         remaining -= len(data)
                         yield data
                 else:
-                    # 非范围请求，返回整个文件（仍然分块）
+                    # 非范围请求，返回整个文件（分块流式传输）
+                    # 第一块使用较大的块大小，确保包含元数据
+                    data = video_file.read(initial_chunk_size)
+                    if data:
+                        yield data
+                    
+                    # 后续块使用标准大小
                     while True:
                         data = video_file.read(chunk_size)
                         if not data:
                             break
                         yield data
         
-        # 创建响应对象
+        # 创建响应头
+        headers = {
+            'Content-Type': 'video/mp4',
+            'Accept-Ranges': 'bytes',
+            'Cache-Control': 'no-cache',
+            'X-Content-Type-Options': 'nosniff',  # 防止MIME类型嗅探
+            'Content-Disposition': 'inline'  # 确保内联显示
+        }
+        
         if range_header:
             byte1, byte2 = 0, None
             match = re.search(r'(\d+)-(\d*)', range_header)
@@ -1047,29 +1082,23 @@ def video_stream():
             else:
                 length = file_size - byte1
             
-            resp = Response(
-                generate(),
+            headers['Content-Range'] = f'bytes {byte1}-{byte1 + length - 1}/{file_size}'
+            headers['Content-Length'] = str(length)
+            
+            return Response(
+                generate_stream(),
                 status=206,
-                mimetype='video/mp4',
-                content_type='video/mp4',
+                headers=headers,
                 direct_passthrough=True
             )
-            
-            resp.headers.add('Content-Range', f'bytes {byte1}-{byte1 + length - 1}/{file_size}')
-            resp.headers.add('Content-Length', str(length))
         else:
-            resp = Response(
-                generate(),
-                mimetype='video/mp4',
-                content_type='video/mp4',
+            headers['Content-Length'] = str(file_size)
+            
+            return Response(
+                generate_stream(),
+                headers=headers,
                 direct_passthrough=True
             )
-            
-            resp.headers.add('Content-Length', str(file_size))
-        
-        # 添加通用头部
-        resp.headers.add('Accept-Ranges', 'bytes')
-        return resp
         
     except Exception as e:
         logger.exception(e)

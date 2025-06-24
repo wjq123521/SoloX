@@ -433,7 +433,29 @@
             <div class='card-title'>{% if lan == 'cn' %} 录屏回放 {% else %} Record Preview {% endif %}</div>
         </div>
         <div class="card-body" style="display: flex; justify-content: center; align-items: center;">
-            <video src="/apm/video/stream?scene={{ scene }}" controls width="250px"></video>
+            <video id="recordVideo" controls width="350px" preload="metadata" onloadedmetadata="console.log('视频元数据已加载')">
+                <source src="/apm/video/stream?scene={{ scene }}&metadata=1" type="video/mp4">
+                您的浏览器不支持视频标签
+            </video>
+            <script>
+                // 确保视频元数据加载
+                document.addEventListener('DOMContentLoaded', function() {
+                    const video = document.getElementById('recordVideo');
+                    // 强制预加载元数据
+                    video.preload = 'metadata';
+                    // 监听元数据加载事件
+                    video.addEventListener('loadedmetadata', function() {
+                        console.log('视频时长:', video.duration);
+                    });
+                    // 如果视频加载失败，尝试重新加载
+                    video.addEventListener('error', function() {
+                        console.error('视频加载失败，尝试重新加载');
+                        setTimeout(() => {
+                            video.load();
+                        }, 1000);
+                    });
+                });
+            </script>
         </div>
     </div>
     {% endif %}
